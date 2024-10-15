@@ -5,6 +5,7 @@
 
 #include "passwords.h"            // local
 
+#define ARDUINOJSON_STRING_LENGTH_SIZE 4
 #include <ArduinoJson.h>
 #include <base64.h>
 
@@ -585,8 +586,6 @@ void blink()
 //
 /////////////////////////////////////////////////////////////////////////////////////
 
-String base64;
-
 void getAudioFromPicture()
 {
   // auditive feedback
@@ -614,7 +613,7 @@ void getAudioFromPicture()
   httpImage.addHeader("Content-Type", "application/json");
 
   // Create a JSON object with the image data
-  DynamicJsonDocument doc(102000);
+  JsonDocument doc;
   doc["model"] = "gpt-4o-mini";
   JsonArray messages = doc.createNestedArray("messages");
   JsonObject message = messages.createNestedObject();
@@ -626,22 +625,24 @@ void getAudioFromPicture()
   JsonObject image_url = content.createNestedObject();
   image_url["type"] = "image_url";
   JsonObject url_obj = image_url.createNestedObject("image_url");
-  base64 = "data:image/jpeg;base64," + base64::encode(out_jpg, out_jpg_len);
-  url_obj["url"] = base64;
-
-  Serial.println("base 64: ");
-  Serial.println(base64);
+  url_obj["url"] = "data:image/jpeg;base64," + base64::encode(out_jpg, out_jpg_len);
 
   // Serialize the JSON object to a string
-  String json;
-  serializeJson(doc, json);
-
+  int jsonLenPrediction = floor (1.5f * out_jpg_len);     // guessing, base64 = factor 4/3
+  char * json = (char *) malloc(jsonLenPrediction);
+  serializeJson(doc, json, jsonLenPrediction);
   free(out_jpg);
+  if (doc.overflowed() ) {
+    free(json);
+    Serial.println("Memory error at json/base64 conversion");
+    return;
+  }
 
   Serial.println(json);
 
   // send to OpenAI
   int httpResponseCode = httpImage.POST(json);
+  free(json);
   String response = httpImage.getString();
 
   Serial.println(response);
