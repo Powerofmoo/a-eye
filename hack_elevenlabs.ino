@@ -3,6 +3,8 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
+#include "passwords.h"            // local
+
 #include <ArduinoJson.h>
 #include <base64.h>
 
@@ -17,25 +19,10 @@ AudioFileSourcePROGMEM *progmem;
 AudioFileSourceID3 *id3;
 AudioGeneratorMP3 *mp3Player = NULL;
 
-// Define a structure to hold Wi-Fi credentials
-struct WiFiCredential {
-  const char *ssid;
-  const char *password;
-};
-
-// Create an array of WiFiCredential structures
-WiFiCredential wifiCredentials[] = {
-  { "FRITZ!Box Fon WLAN 7170", "##" },
-  { "iPhone Richard", "## },
-};
-
 String socialMediaServer = "https://www.powerofmoo.com/_functions/socialmedia";
 String whisperServer = "https://api.openai.com/v1/audio/transcriptions";
 String openAIServer = "https://api.openai.com/v1/chat/completions";
 String elevenLabsServer = "https://api.elevenlabs.io/v1/text-to-speech";
-
-String openAIapiKey = "sk-proj-##";
-String elevenLabsApiKey = "sk_##";
 
 String elevenVoiceID = "2SUKdqx6YKcgi9ifvDmw";  // Osirion
 const char* openAIquery = "image from a cam, you help the blind, what do you see?";
@@ -61,11 +48,11 @@ bool recordingVoice = false;
 
 uint8_t *logo = NULL;
 size_t logo_len;
-String logoFile = "/logo/logo320x200a.jpg";
+String logoFile = "/a-eye/logo/logo320x200a.jpg";
 
 uint8_t *logoBlink = NULL;
 size_t logoBlink_len;
-String logoBlinkFile = "/logo/logo320x200x.jpg";
+String logoBlinkFile = "/a-eye/logo/logo320x200x.jpg";
 
 long blinkInterval = 4000; // Time between blinks (in milliseconds)
 long blinkRandom = 1000; // added random time for blinks (in milliseconds)
@@ -146,7 +133,6 @@ void showLogo(bool clear = true, bool blink = false)
   }
 }
 
-
 /////////////////////////////////////////////////////////////////////////////////////
 //
 //  setup
@@ -166,7 +152,7 @@ void setup(void) {
     }
     Serial.println("SD initialized");
     CoreS3.Display.drawString("SD initialized", 0, 10);
-    
+
      // connect to WiFi
     Serial.println("Connecting to WiFi...");
     CoreS3.Display.drawString("Connecting to WiFi...", 0, 20);
@@ -277,47 +263,100 @@ void setup(void) {
 //
 /////////////////////////////////////////////////////////////////////////////////////
 
+bool tutorialMode = false;
+bool tutorialRedPlayed = false;
+bool tutorialBluePlayed = false;
+
 void loop(void) {
     CoreS3.update();
 
     // handle playing mp3 - without interruptions
     if (mp3Player != NULL && mp3Player->isRunning()) {
-      //CoreS3.Display.fillTriangle(130 - 8, 15 - 8, 130 - 8, 15 + 8, 130 + 8, 15, GREEN);
-      //CoreS3.Display.drawString("PLAY", 180, 3);
+      // CoreS3.Display.fillTriangle(130 - 8, 15 - 8, 130 - 8, 15 + 8, 130 + 8, 15, GREEN);
+      // CoreS3.Display.drawString("PLAY", 180, 3);
       if (!mp3Player->loop()) mp3Player->stop();
       return;
     } 
 
-    // clean up mp3 after playing
-    if (mp3Data) {
-      free(mp3Data);
+    // clean up mp3 is its not running anymore
+    if (mp3Player) {
+      if (mp3Data) free(mp3Data);
       mp3Player = NULL;     // some clean up function??
       mp3Data = NULL;
       mp3DataLength = 0;
-      showLogo();
+      showLogo(!tutorialMode);    // clean when tutorial over
     }
 
     // handle external buttons
     bool redPressed = (digitalRead(REDPIN) == 0);
     bool bluePressed = (digitalRead(BLUEPIN) == 0);
-    bool redButton = false, blueButton = false;
+    bool redButtonClicked = false, blueButtonClicked = false, redButtonStarted = false, blueButtonStarted = false;
     bool redReleased = false, blueReleased = false;
-    if (redPressed && !redWasPressed) redButton = true;
-    if (bluePressed && !blueWasPressed) blueButton = true;
+    if (!redPressed && redWasPressed) redButtonClicked = true;
+    if (!bluePressed && blueWasPressed) blueButtonClicked = true;
+    if (redPressed && !redWasPressed) redButtonStarted = true;
+    if (bluePressed && !blueWasPressed) blueButtonStarted = true;
     if (!redPressed && redWasPressed) redReleased = true;
     if (!bluePressed && blueWasPressed) blueReleased = true;
     redWasPressed = redPressed;
     blueWasPressed = bluePressed;
 
-    // read image in every loop to avoid buffering
-    if (CoreS3.Camera.get()) { 
-      if (blueButton) {
-        getAudioFromPicture();
-        showLogo();
-      }
-    }
-    CoreS3.Camera.free();
+    // handle tutorial mode
+    if (M5.BtnPWR.wasClicked()) {
+      tutorialMode = true;
+      tutorialRedPlayed = false;
+      tutorialBluePlayed = false;
+      playMp3File("/a-eye/tutorial/tutorialIntro.mp3");
 
+      showLogo();
+      CoreS3.Display.fillTriangle(80 - 8, 15 - 8, 80 - 8, 15 + 8, 80 + 8, 15, PURPLE);
+      CoreS3.Display.drawString("TUTORIAL", 160, 3);
+    }
+
+    if (tutorialMode) {
+      if (redButtonClicked) {
+
+        CoreS3.Display.fillCircle(280, 15, 8, RED);
+
+        if (!tutorialBluePlayed) {
+          playMp3File ("/a-eye/tutorial/tutorialListenFirst.mp3");
+          tutorialRedPlayed = true;
+        } else {
+          playMp3File ("/a-eye/tutorial/tutorialListenLast.mp3");
+          tutorialMode = false;
+        }
+      }
+      
+      if (blueButtonClicked) {
+
+        CoreS3.Display.fillCircle(250, 15, 8, BLUE);
+
+        if(!tutorialRedPlayed) {
+          playMp3File ("/a-eye/tutorial/tutorialSeeFirst.mp3");
+          tutorialBluePlayed = true;
+        } else {
+          playMp3File ("/a-eye/tutorial/tutorialSeeLast.mp3");
+          tutorialMode = false;
+        }
+      }
+
+      // in tutorial mode, disabled all other functions except blink
+      blink();
+
+      return;
+
+    }
+
+    if (!redPressed) {
+      // read image in every loop to avoid buffering
+      if (CoreS3.Camera.get()) { 
+        if (blueButtonClicked) {
+          getAudioFromPicture();
+          showLogo();
+        }
+      }
+      CoreS3.Camera.free(); 
+    }
 
     // screen click functions as flipflop
     bool startRec = false, startPlay = false;
@@ -330,7 +369,7 @@ void loop(void) {
     }
 
     // start recording when red button pressed
-    if (redButton || startRec) {
+    if (redButtonStarted || startRec) {
         CoreS3.Speaker.end();
         CoreS3.Mic.begin();
 
@@ -454,7 +493,7 @@ void loop(void) {
             // signal if sound is over
             if (!CoreS3.Speaker.isPlaying()) {
               showLogo();
-              CoreS3.Display.fillCircle(120, 15, 8, PURPLE);
+              CoreS3.Display.fillCircle(100, 15, 8, PURPLE);
               CoreS3.Display.drawString("UPLOAD", 180, 3);
             }
 
@@ -516,14 +555,8 @@ void loop(void) {
 
     if (!redPressed && !recordingVoice) {
 
-      // do blinking
-      long currentMillis = millis();
-      if (currentMillis - lastBlinkTime >= blinkInterval) {
-        showLogo(false,true);
-        delay(blinkDuration);
-        showLogo(false);
-        lastBlinkTime = millis() + random(0, blinkRandom);
-      }
+      // idle loop
+      blink();
 
       if (!mp3Player) {
         // main buttons
@@ -535,6 +568,17 @@ void loop(void) {
     }
 }
 
+void blink()
+{
+    // do blinking
+    long currentMillis = millis();
+    if (currentMillis - lastBlinkTime >= blinkInterval) {
+      showLogo(false,true);
+      delay(blinkDuration);
+      showLogo(false);
+      lastBlinkTime = millis() + random(0, blinkRandom);
+    }
+}
 /////////////////////////////////////////////////////////////////////////////////////
 //
 //  helper functions
@@ -776,6 +820,19 @@ String urlencode(String str) {
     }
   }
   return encodedString;
+}
+
+void playMp3File(const char* filename)
+{
+  file = new AudioFileSourceSD(filename);
+  id3  = new AudioFileSourceID3(file);
+  Serial.print ("Tutorial playing: ");
+  Serial.println(filename);
+
+  M5.Speaker.setVolume(255);
+
+  mp3Player = new AudioGeneratorMP3();
+  mp3Player->begin(id3, &out);
 }
 
 size_t  freeMemory() {
